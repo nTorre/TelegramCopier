@@ -36,4 +36,3 @@ nohup python main.py &
 
 ## TODO
 - Add a parameter on connections.csv that allows to send also old messages
-- Add reply with a map woth ids. For now it only write also the old text (the solution can be problematic if there is more than one sender for the same receiver )
