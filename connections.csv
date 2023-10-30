@@ -1,2 +1,3 @@
 channel_source,channel_destination
 TestSender,TestReceiver
+TestSender2,TestReceiver
