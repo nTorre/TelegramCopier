@@ -32,7 +32,10 @@ async def copy_and_send_message(event):
             sender = await event.get_sender()
             text = ""
             if hasattr(sender, 'first_name'):
-                text = "**" + sender.first_name + " " + sender.last_name + " | " + sender.username + "**\n\n"
+                try:
+                    text = "**" + sender.first_name + " " + sender.last_name + " | " + sender.username + "**\n\n"
+                except:
+                    pass
 
             text += message.text
 
