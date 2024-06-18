@@ -19,8 +19,10 @@ It has to be like:
 channel_source,channel_destination
 canale1_username,chat2
 chat_username,canale2_username
+group>topic,chat3
+
 ```
-where the first is the copied, the second the target. Do not change the first row. Attention to not have two channels with the same name
+where the first is the copied, the second the target. Do not change the first row. Attention to not have two channels with the same name. Use `>` for topic.
 5. Then
 ```shell
 python main.py

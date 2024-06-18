@@ -1,7 +1,11 @@
 import os
 from dotenv import load_dotenv
+from telethon import functions, errors
 from telethon.sync import TelegramClient, utils, events
 from telethon.tl import types
+from telethon.tl.types import MessageActionTopicCreate, PeerUser, PeerChat, PeerChannel
+
+from utils import get_topic_id
 
 # Carica le variabili d'ambiente dal file .env
 load_dotenv()
@@ -13,42 +17,73 @@ phone_number = os.getenv("PHONE_NUMBER")
 
 
 async def copy_and_send_message(event):
+
     message = event.message
+
+    try:
+        chat_id = message.peer_id.chat_id
+    except:
+        chat_id = message.peer_id.channel_id
+
+
+    # controllo se arriva da un topic
+    if message.reply_to and message.reply_to.forum_topic:
+        # get topic id
+        topic_id = message.reply_to.reply_to_msg_id
+        if message.reply_to.reply_to_top_id is not None:
+            topic_id = message.reply_to.reply_to_top_id
+
+        print(topic_id)
+        channel_id_destination = channel_mapping.get(str(chat_id) + ">" + str(topic_id))
+
+    else:
+        channel_id_destination = channel_mapping.get(chat_id)
+
     print(message)
 
-    channel_id_destination = channel_mapping.get(event.chat_id)
+
 
     if channel_id_destination:
+        print(int(abs(float(channel_id_destination))))
+
         text = None
         element = None
 
         if message.media:
             # se media inoltro
             # Sostituisci con l'ID effettivo del chat
-            element = await event.client.forward_messages(channel_id_destination,
+            element = await event.client.forward_messages(int(abs(float(channel_id_destination))),
                                                           messages=message)
 
         elif message.text:
             sender = await event.get_sender()
-            text = ""
+            text = "**"
             if hasattr(sender, 'first_name'):
-                try:
-                    text = "**" + sender.first_name + " " + sender.last_name + " | " + sender.username + "**\n\n"
-                except:
-                    pass
+                text += sender.first_name
 
+            if hasattr(sender, 'last_name'):
+                if text != "":
+                    text += " "
+                text += " " + sender.last_name
+
+            if hasattr(sender, 'username'):
+                if text != "":
+                    text += " | "
+                text += sender.username
+
+            text += "**\n\n"
             text += message.text
 
             # Se il messaggio è una risposta a un altro messaggio, includi il testo del messaggio originale
             if message.is_reply and message.reply_to_msg_id in ids_map:
-                element = await event.client.send_message(channel_id_destination,
+                element = await event.client.send_message(int(abs(float(channel_id_destination))),
                                                           text,
                                                           reply_to=ids_map[message.reply_to_msg_id],
                                                           parse_mode='markdown')
             else:
-                element = await event.client.send_message(channel_id_destination, text, parse_mode='markdown')
+                element = await event.client.send_message(int(abs(float(channel_id_destination))), text, parse_mode='markdown')
         elif not message.is_reply:
-            element = await event.client.send_message(channel_id_destination, text, parse_mode='markdown')
+            element = await event.client.send_message(int(abs(float(channel_id_destination))), text, parse_mode='markdown')
 
         ids_map[message.id] = element.id
 
@@ -59,28 +94,88 @@ async def main():
 
         # Aggiungi un gestore di eventi per catturare i nuovi messaggi nei canali di origine
         for channel_id_source, channel_id_destination in channel_mapping.items():
-            client.add_event_handler(copy_and_send_message, events.NewMessage(chats=channel_id_source))
+            if str(channel_id_source).find('>') != -1:
+                target = channel_id_source.split('>')[0]
+                client.add_event_handler(copy_and_send_message, events.NewMessage(chats=int(abs(float(target)))))
+            else:
+                client.add_event_handler(copy_and_send_message, events.NewMessage(chats=int(abs(float(channel_id_source)))))
 
         # Avvia il client
         await client.run_until_disconnected()
 
+
+
+def get_entity_id_from_dialog(client, dialog):
+    try:
+        # Ottieni l'entità associata al Dialog
+        entity = dialog.entity
+
+        # Verifica il tipo di entità e restituisci l'ID corrispondente
+        if isinstance(entity, types.User):
+            return entity.id
+        elif isinstance(entity, types.Chat):
+            return entity.id
+        elif isinstance(entity, types.Channel):
+            return entity.id
+        else:
+            return None
+
+    except Exception as e:
+        print(f"Errore durante il recupero dell'ID dell'entità: {e}")
+        return None
+
+async def get_group_id_by_name(client, group_name):
+    dialogs = await client.get_dialogs()
+    for dialog in dialogs:
+        if dialog.name == group_name:
+            entity_id = get_entity_id_from_dialog(client, dialog)
+            return entity_id
+    return None
+
 async def setup_channels(client):
     import csv
 
-    id_channel_map = {}
-    async for dialog in client.iter_dialogs():
-        id_channel_map[dialog.name] = dialog.id
 
     with open('connections.csv', newline='') as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
-            if row['channel_source'] not in id_channel_map:
-                print("Attention: " + row['channel_source'] + " not in your chats")
-            elif row['channel_destination'] not in id_channel_map:
-                print("Attention: " + row['channel_destination'] + " not in your chats")
-            else:
-                channel_mapping[id_channel_map[row['channel_source']]] = id_channel_map[row['channel_destination']]
 
+            print(row)
+
+            channel_src = row['channel_source'].split(">")
+            channel_src_name = channel_src[0]
+
+            channel_src_id = await get_group_id_by_name(client, channel_src_name)
+            if channel_src_id is None:
+                print("Attention: " + channel_src_name + " not in your chats")
+                continue
+
+            channel_dest_id = await get_group_id_by_name(client, row['channel_destination'])
+            if channel_dest_id is None:
+                print("Attention: " + row['channel_destination'] + " not in your chats")
+                continue
+
+
+            if len(row['channel_source'].split(">")) == 2:
+                # prendo il topic id
+                channel_src_topic_id = await get_topic_id(client, row['channel_source'])
+
+                if channel_src_topic_id is None:
+                    print("Topic not found")
+                    continue
+
+                key = (str(channel_src_id) + ">" + str(channel_src_topic_id))
+                channel_mapping[key] = int(abs(float(channel_dest_id)))
+
+            elif len(row['channel_source'].split(">")) >= 3:
+                print("Errore, i gruppi non possono contenere il carattere '>'")
+                continue
+
+            else:
+                key = int(str(channel_src_id).replace('-', ''))
+                channel_mapping[key] = int(abs(float(channel_dest_id)))
+
+    print(channel_mapping)
 
 if __name__ == '__main__':
 
