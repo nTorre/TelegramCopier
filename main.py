@@ -1,11 +1,7 @@
 import os
 from dotenv import load_dotenv
-from telethon import functions, errors
-from telethon.sync import TelegramClient, utils, events
+from telethon.sync import TelegramClient, events
 from telethon.tl import types
-from telethon.tl.types import MessageActionTopicCreate, PeerUser, PeerChat, PeerChannel
-
-from utils import get_topic_id
 
 # Carica le variabili d'ambiente dal file .env
 load_dotenv()
@@ -21,12 +17,15 @@ async def copy_and_send_message(event):
     message = event.message
 
     try:
-        chat_id = message.peer_id.chat_id
+        chat_id = message.chat_id
+        if chat_id is None:
+            chat_id = message.peer_id.chat_id
     except:
         chat_id = message.peer_id.channel_id
 
 
     # controllo se arriva da un topic
+
     if message.reply_to and message.reply_to.forum_topic:
         # get topic id
         topic_id = message.reply_to.reply_to_msg_id
@@ -37,7 +36,7 @@ async def copy_and_send_message(event):
         channel_id_destination = channel_mapping.get(str(chat_id) + ">" + str(topic_id))
 
     else:
-        channel_id_destination = channel_mapping.get(chat_id)
+        channel_id_destination = channel_mapping.get(int(abs(float(chat_id))))
 
     print(message)
 
@@ -58,15 +57,15 @@ async def copy_and_send_message(event):
         elif message.text:
             sender = await event.get_sender()
             text = "**"
-            if hasattr(sender, 'first_name'):
+            if hasattr(sender, 'first_name') and sender.first_name is not None:
                 text += sender.first_name
 
-            if hasattr(sender, 'last_name'):
+            if hasattr(sender, 'last_name') and sender.last_name is not None:
                 if text != "":
                     text += " "
                 text += " " + sender.last_name
 
-            if hasattr(sender, 'username'):
+            if hasattr(sender, 'username') and sender.username is not None:
                 if text != "":
                     text += " | "
                 text += sender.username
@@ -143,37 +142,34 @@ async def setup_channels(client):
             print(row)
 
             channel_src = row['channel_source'].split(">")
-            channel_src_name = channel_src[0]
+            if len(channel_src) == 1:
+                channel_src_name = channel_src[0]
 
-            channel_src_id = await get_group_id_by_name(client, channel_src_name)
-            if channel_src_id is None:
-                print("Attention: " + channel_src_name + " not in your chats")
-                continue
+                channel_src_id = await get_group_id_by_name(client, channel_src_name)
+                if channel_src_id is None:
+                    print("Attention: " + channel_src_name + " not in your chats")
+                    continue
 
-            channel_dest_id = await get_group_id_by_name(client, row['channel_destination'])
-            if channel_dest_id is None:
-                print("Attention: " + row['channel_destination'] + " not in your chats")
-                continue
+                channel_dest_id = await get_group_id_by_name(client, row['channel_destination'])
+                if channel_dest_id is None:
+                    print("Attention: " + row['channel_destination'] + " not in your chats")
+                    continue
+
+                key = int(str(channel_src_id).replace('-', ''))
+                channel_mapping[key] = int(abs(float(channel_dest_id)))
 
 
             if len(row['channel_source'].split(">")) == 2:
                 # prendo il topic id
-                channel_src_topic_id = await get_topic_id(client, row['channel_source'])
+                channel_src_group_id = row['channel_source'].split(">")[0]
+                channel_src_topic_id = row['channel_source'].split(">")[1]
 
-                if channel_src_topic_id is None:
-                    print("Topic not found")
-                    continue
-
-                key = (str(channel_src_id) + ">" + str(channel_src_topic_id))
+                key = (str(channel_src_group_id) + ">" + str(channel_src_topic_id))
                 channel_mapping[key] = int(abs(float(channel_dest_id)))
 
             elif len(row['channel_source'].split(">")) >= 3:
                 print("Errore, i gruppi non possono contenere il carattere '>'")
                 continue
-
-            else:
-                key = int(str(channel_src_id).replace('-', ''))
-                channel_mapping[key] = int(abs(float(channel_dest_id)))
 
     print(channel_mapping)
 
